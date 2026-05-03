@@ -37,6 +37,27 @@ def query_collection(query_embedding: list[float], top_k: int = 5, entity_type_f
     )
     return results
 
+def get_chunks_by_entity_name(entity_name: str, top_k: int = 3) -> list[dict]:
+    """Directly fetch stored chunks for a specific entity by metadata filter."""
+    client = get_chroma_client()
+    collection = get_or_create_collection(client)
+    results = collection.get(
+        where={"entity_name": entity_name},
+        include=["documents", "metadatas"],
+        limit=top_k,
+    )
+    chunks = []
+    if results["documents"]:
+        for doc, meta in zip(results["documents"], results["metadatas"]):
+            chunks.append({
+                "text": doc,
+                "entity_name": meta.get("entity_name", ""),
+                "entity_type": meta.get("entity_type", ""),
+                "chunk_index": meta.get("chunk_index", 0),
+                "distance": 0.0,
+            })
+    return chunks
+
 def collection_count() -> int:
     client = get_chroma_client()
     col = get_or_create_collection(client)

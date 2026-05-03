@@ -1,4 +1,4 @@
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Literal
 
 @dataclass
@@ -6,6 +6,7 @@ class Entity:
     name: str
     entity_type: Literal["person", "place"]
     wikipedia_title: str
+    fallback_titles: list[str] = field(default_factory=list)
 
 PEOPLE: list[Entity] = [
     Entity("Albert Einstein", "person", "Albert Einstein"),
@@ -39,7 +40,7 @@ PLACES: list[Entity] = [
     Entity("Colosseum", "place", "Colosseum"),
     Entity("Hagia Sophia", "place", "Hagia Sophia"),
     Entity("Statue of Liberty", "place", "Statue of Liberty"),
-    Entity("Pyramids of Giza", "place", "Pyramids of Giza"),
+    Entity("Pyramids of Giza", "place", "Pyramids of Giza", ["Giza pyramid complex"]),
     Entity("Mount Everest", "place", "Mount Everest"),
     Entity("Stonehenge", "place", "Stonehenge"),
     Entity("Angkor Wat", "place", "Angkor Wat"),
