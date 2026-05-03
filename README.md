@@ -134,7 +134,7 @@ Open **http://localhost:8501** in your browser.
 
 ## Demo Video
 
-Demo video link: &lt;https://drive.google.com/file/d/1iWWkAS6ag9q7ntggiXV9o1aeobh4DzTR/view?usp=sharing&gt;
+Demo video link: &lt;https://youtu.be/qQQ3Kfc28VA&gt;
 
 ## Demo Queries
 
