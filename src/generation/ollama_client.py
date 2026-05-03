@@ -11,10 +11,11 @@ def embed_text(text: str) -> list[float]:
     resp.raise_for_status()
     return resp.json()["embedding"]
 
-def generate_text(prompt: str, stream: bool = False) -> str:
+def generate_text(prompt: str, model_name: str | None = None) -> str:
+    model = model_name or LLM_MODEL
     resp = requests.post(
         f"{OLLAMA_BASE_URL}/api/generate",
-        json={"model": LLM_MODEL, "prompt": prompt, "stream": False},
+        json={"model": model, "prompt": prompt, "stream": False},
         timeout=120,
     )
     resp.raise_for_status()

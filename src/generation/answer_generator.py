@@ -125,20 +125,68 @@ _CONTINUATION_RE = re.compile(
     re.IGNORECASE,
 )
 
+# Abbreviations whose trailing period must NOT be treated as a sentence boundary.
+# Lookahead (?=[\s\d\u2009–-]) ensures we only protect when the period is
+# followed by whitespace or a digit/dash (date contexts), not at true sentence ends.
+_ABBREV_PROTECT_RE = re.compile(
+    r"\b(?:c|ca|etc|vs|approx|no|vol|pp|fig|cf)\.(?=[\s\d\u2009–-])"
+    r"|(?:e\.g|i\.e)\.(?=\s)",
+    re.IGNORECASE,
+)
+_PLACEHOLDER = "\x00"  # null byte — never appears in Wikipedia text
+
+
+def _protect_abbrevs(text: str) -> str:
+    """Replace the period in known abbreviations with a placeholder to block false splits."""
+    return _ABBREV_PROTECT_RE.sub(lambda m: m.group(0)[:-1] + _PLACEHOLDER, text)
+
+
+def _restore_abbrevs(text: str) -> str:
+    return text.replace(_PLACEHOLDER, ".")
+
+
+# Trailing words that indicate the sentence was cut mid-phrase by a false split.
+_DANGLING_RE = re.compile(
+    r"\s+(?:between|c|ca|AD|BC|and|or|of|in|at|by|for|from|to|the|a|an)\s*$",
+    re.IGNORECASE,
+)
+
+
+def _clean_fact_for_display(fact: str, max_len: int = 320) -> str:
+    """Remove dangling trailing fragments and cap length at a word boundary.
+
+    _DANGLING_RE is applied in a loop so chained fragments like
+    'between c' are fully stripped ('c' removed first, then 'between').
+    """
+    fact = _restore_abbrevs(fact).strip()
+    while True:
+        cleaned = _DANGLING_RE.sub("", fact).strip()
+        if cleaned == fact:
+            break
+        fact = cleaned
+    if fact and fact[-1] not in ".!?":
+        fact += "."
+    if len(fact) > max_len:
+        cut = fact[:max_len].rfind(" ")
+        fact = (fact[: cut if cut > max_len // 2 else max_len]).rstrip(".,;:") + "…"
+    return fact
+
 
 def _clean_sentences(text: str, max_count: int = 4) -> list[str]:
     """Return up to max_count complete, well-formed sentences from text.
 
     Skips fragments that:
-    - start with a lowercase letter (mid-sentence continuation)
+    - start with a lowercase letter or digit (mid-sentence continuation)
     - start with punctuation (,  ;  :  —)
     - start with a continuation word (and, but, which …)
     - are shorter than 35 characters
+    Protects abbreviations like c. / ca. / e.g. from false sentence splits.
     """
-    raw = re.split(r"(?<=[.!?])\s+", text.replace("\n", " "))
+    protected = _protect_abbrevs(text.replace("\n", " "))
+    raw = re.split(r"(?<=[.!?])\s+", protected)
     result: list[str] = []
     for s in raw:
-        s = s.strip()
+        s = _restore_abbrevs(s).strip()
         if len(s) < 35:
             continue
         if not s[0].isupper():
@@ -295,30 +343,70 @@ Question: {query}
 Answer:"""
 
 
-# ── Same-dimension matcher for conservative fallback ──────────────────────────
+# ── Same-dimension matcher ────────────────────────────────────────────────────
+#
+# Each entry is (dimension_name, compiled_regex).  Patterns are checked in order;
+# the FIRST match wins.  Strict phrases are used so that compound adjectives like
+# "German-born" do NOT trigger birth_origin, and "built for" / "built during" /
+# "designed by" land in distinct groups rather than a single broad construction group.
 
-# Each group is a frozenset of lowercase keywords. Two facts are "same-dimension"
-# if they both contain at least one keyword from the same group.
-_DIMENSION_GROUPS: list[frozenset] = [
-    frozenset({"born", "birthplace", "birth", "birthdate"}),
-    frozenset({"citizen", "citizenship", "nationality", "naturalized"}),
-    frozenset({"physicist", "engineer", "inventor", "artist", "writer",
-               "footballer", "musician", "mathematician", "philosopher",
-               "painter", "architect", "scientist", "politician"}),
-    frozenset({"built", "constructed", "completed", "opened", "erected"}),
-    frozenset({"located", "situated", "stands", "lies", "found in"}),
-    frozenset({"tall", "height", "elevation", "metres", "meters", "feet"}),
-    frozenset({"died", "death", "deceased"}),
-    frozenset({"awarded", "award", "prize", "nobel", "olympic", "medal"}),
+_DIMENSION_PATTERNS: list[tuple[str, re.Pattern]] = [
+    # birth_origin — requires "was born", "born in/on/and", not bare "born"
+    ("birth_origin",      re.compile(
+        r"\bwas born\b|\bborn (?:in|on|and|c\.)\b|\bbirthplace\b|\bbirthdate\b",
+        re.I,
+    )),
+    # death
+    ("death",             re.compile(r"\b(?:died|death|passed away)\b", re.I)),
+    # nationality / citizenship
+    ("citizenship",       re.compile(r"\b(?:citizen(?:ship)?|nationality|naturalized)\b", re.I)),
+    # relocation / migration
+    ("migration",         re.compile(r"\bmoved? to\b|\bmigrat|\bemigrat|\bimmigrat", re.I)),
+    # geographic location of a place
+    ("location",          re.compile(
+        r"\b(?:located|situated|lies (?:in|on)|stands (?:in|on))\b", re.I,
+    )),
+    # when something was built / completed / opened (date dimension)
+    ("construction_date", re.compile(
+        r"\bcompleted (?:in|ad|\d)"
+        r"|\bconstructed (?:in|c\.)"
+        r"|\bbuilt (?:in|during|between|c\.)"
+        r"|\bopened (?:in|on)"
+        r"|\berected (?:in|during|between)",
+        re.I,
+    )),
+    # who designed / built / commissioned it
+    ("designer_builder",  re.compile(
+        r"\bdesigned by\b|\bbuilt by\b|\bcommissioned by\b"
+        r"|\barchitects? of\b|\bby (?:the )?architect\b",
+        re.I,
+    )),
+    # what something was used for / served as
+    ("purpose_use",       re.compile(
+        r"\bserved as\b|\bused (?:as|for)\b|\bbuilt for\b|\bintended (?:as|for)\b",
+        re.I,
+    )),
+    # intellectual contribution (people)
+    ("intellectual_work", re.compile(
+        r"\b(?:invented|invention|developed|discovered|theory|contribution|published|created)\b",
+        re.I,
+    )),
+    # awards and prizes
+    ("award",             re.compile(
+        r"\b(?:award(?:ed)?|prize|nobel|olympic medal)\b", re.I,
+    )),
+    # physical dimensions / height
+    ("dimensions",        re.compile(
+        r"\b(?:tall(?:er|est)?|height|elevation|metres?|meters?|feet)\b", re.I,
+    )),
 ]
 
 
-def _dimension_group(sentence: str) -> int | None:
-    """Return the index of the first matching dimension group, or None."""
-    s = sentence.lower()
-    for i, group in enumerate(_DIMENSION_GROUPS):
-        if any(kw in s for kw in group):
-            return i
+def _dimension_group(sentence: str) -> str | None:
+    """Return the name of the first matching dimension group, or None."""
+    for name, pattern in _DIMENSION_PATTERNS:
+        if pattern.search(sentence):
+            return name
     return None
 
 
@@ -342,6 +430,69 @@ def _find_same_dimension_pairs(
         if len(pairs) >= max_pairs:
             break
     return pairs
+
+
+# ── Deterministic diff-section builder ────────────────────────────────────────
+
+_DIFF_HEADING_RE = re.compile(
+    r"\n[ \t]*(?:Directly\s+supported\s+differences|Supported\s+differences)\s*:",
+    re.IGNORECASE,
+)
+_NO_DIFF_LINE = (
+    "- No directly comparable same-dimension differences were found in the retrieved excerpts."
+)
+
+
+def _strip_diff_section(text: str) -> str:
+    """Remove the diff-section heading and everything after it, leaving entity summaries."""
+    m = _DIFF_HEADING_RE.search(text)
+    return text[:m.start()].rstrip() if m else text.rstrip()
+
+
+def _build_deterministic_diff(chunks: list[dict], entity_names: list[str]) -> str:
+    """Return a 'Directly supported differences:' block built purely from chunk text.
+
+    Collects up to 6 clean sentences per entity (across all its chunks),
+    then applies same-dimension matching.  Prefers false negatives.
+    """
+    if len(entity_names) < 2:
+        return f"\n\nDirectly supported differences:\n{_NO_DIFF_LINE}"
+
+    # Group and sort chunks by entity
+    grouped: dict[str, list[dict]] = {e: [] for e in entity_names}
+    for c in chunks:
+        if c["entity_name"] in grouped:
+            grouped[c["entity_name"]].append(c)
+    for name in grouped:
+        grouped[name].sort(key=lambda c: c["chunk_index"])
+
+    # Collect up to 6 clean, non-fallback sentences per entity across its chunks
+    facts: dict[str, list[str]] = {}
+    for entity in entity_names:
+        collected: list[str] = []
+        for ec in grouped.get(entity, []):
+            for s in _clean_sentences(ec["text"], max_count=6):
+                if not _is_fallback_sentence(s) and s not in collected:
+                    collected.append(s)
+            if len(collected) >= 6:
+                break
+        facts[entity] = collected[:6]
+
+    a, b = entity_names[0], entity_names[1]
+    pairs = _find_same_dimension_pairs(facts.get(a, []), facts.get(b, []))
+
+    lines = ["\n\nDirectly supported differences:"]
+    if pairs:
+        for fa, fb in pairs:
+            lines.append(
+                f"- {a}: {_clean_fact_for_display(fa).rstrip('.')}"
+                f" — vs — "
+                f"{b}: {_clean_fact_for_display(fb).rstrip('.')}"
+            )
+    else:
+        lines.append(_NO_DIFF_LINE)
+
+    return "\n".join(lines)
 
 
 # ── Conservative Python fallback (no LLM synthesis) ───────────────────────────
@@ -392,7 +543,11 @@ def _conservative_answer(chunks: list[dict], entity_names: list[str]) -> str:
         pairs = _find_same_dimension_pairs(real_a, real_b)
         if pairs:
             for fa, fb in pairs:
-                lines.append(f"- {a}: {fa.rstrip('.')} — vs — {b}: {fb.rstrip('.')}")
+                lines.append(
+                    f"- {a}: {_clean_fact_for_display(fa).rstrip('.')}"
+                    f" — vs — "
+                    f"{b}: {_clean_fact_for_display(fb).rstrip('.')}"
+                )
         else:
             lines.append("- No directly comparable same-dimension differences were found in the retrieved excerpts.")
     else:
@@ -403,7 +558,17 @@ def _conservative_answer(chunks: list[dict], entity_names: list[str]) -> str:
 
 # ── Main entry point ───────────────────────────────────────────────────────────
 
-def answer(query: str, top_k: int = 5, debug: bool = False) -> dict:
+def answer(
+    query: str,
+    top_k: int = 5,
+    debug: bool = False,
+    model_name: str | None = None,
+) -> dict:
+    """Return a RAG answer dict.
+
+    model_name overrides the generation model only; retrieval is unchanged.
+    Omit or pass None to use the configured default LLM_MODEL.
+    """
     route = route_query(query)
     chunks = retrieve(query, top_k=top_k, debug=debug)
     context = build_context(chunks)
@@ -428,16 +593,17 @@ def answer(query: str, top_k: int = 5, debug: bool = False) -> dict:
 
         # Attempt 1: strict comparison prompt
         prompt1 = _build_strict_comparison_prompt(query, per_entity_ctx, matched or [])
-        response = generate_text(prompt1)
+        response = generate_text(prompt1, model_name=model_name)
         if debug:
             print(f"[DEBUG] comparison attempt 1: {response[:200]!r}")
             print(f"[DEBUG] hallucination count: {_hallucination_count(response)} | "
                   f"refusal: {bool(_REFUSAL_RE.search(response or ''))}")
 
+        used_conservative = False
         if _is_bad_comparison_answer(response):
             # Attempt 2: facts-only prompt (no comparison synthesis)
             prompt2 = _build_facts_only_prompt(query, per_entity_ctx, matched or [])
-            response = generate_text(prompt2)
+            response = generate_text(prompt2, model_name=model_name)
             if debug:
                 print(f"[DEBUG] comparison attempt 2 (facts-only): {response[:200]!r}")
                 print(f"[DEBUG] attempt 2 bad: {_is_bad_comparison_answer(response)}")
@@ -447,6 +613,16 @@ def answer(query: str, top_k: int = 5, debug: bool = False) -> dict:
                 if debug:
                     print("[DEBUG] using conservative Python fallback")
                 response = _conservative_answer(chunks, matched or [])
+                used_conservative = True
+
+        # For any LLM response (attempt 1 or 2), replace the LLM-generated diff
+        # section with a deterministic one built from chunk text.
+        # _conservative_answer already produces a correct diff section — skip it.
+        if not used_conservative and response:
+            body = _strip_diff_section(response)
+            response = body + _build_deterministic_diff(chunks, matched or [])
+            if debug:
+                print(f"[DEBUG] deterministic diff rebuilt | entity_names={matched}")
 
         if not response or not response.strip():
             response = FALLBACK
@@ -455,7 +631,7 @@ def answer(query: str, top_k: int = 5, debug: bool = False) -> dict:
 
     # ── Standard path ──────────────────────────────────────────────────────────
     prompt = build_prompt(query, context)
-    response = generate_text(prompt)
+    response = generate_text(prompt, model_name=model_name)
 
     if debug:
         print(f"[DEBUG] raw LLM response: {response!r}")
