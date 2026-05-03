@@ -132,9 +132,7 @@ streamlit run app.py
 
 Open **http://localhost:8501** in your browser.
 
-## Demo Video
 
-Demo video link: &lt;https://youtu.be/qQQ3Kfc28VA&gt;
 
 ## Demo Queries
 
