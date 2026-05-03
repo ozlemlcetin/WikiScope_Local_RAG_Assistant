@@ -1,6 +1,6 @@
 # WikiScope Local RAG Assistant
 
-A fully local Retrieval-Augmented Generation (RAG) system that answers questions about famous people and places using locally stored Wikipedia data. No external LLM APIs — all inference, embeddings, and data storage run on your machine.
+A fully local Retrieval-Augmented Generation (RAG) system that answers questions about famous people and places using locally stored Wikipedia data. No external LLM APIs are used. Wikipedia is accessed only during the one-time ingestion step; after that, inference, embeddings, vector storage, retrieval, and generation all run on localhost.
 
 ## Features
 
@@ -20,7 +20,7 @@ A fully local Retrieval-Augmented Generation (RAG) system that answers questions
 - Evidence signal badge: `entity match` / `lexical match` / `vector search` / `insufficient local evidence`
 - Latency display: total response time shown below each answer
 - Example question buttons in the sidebar
-- Local dataset coverage panel (lists all 40 ingested entities)
+- Local dataset coverage panel (shows all configured local dataset entities)
 - Streaming response display (typewriter effect — display-level only, after full answer generation)
 - Optional side-by-side comparison of answers from two local Ollama generation models
 
@@ -132,13 +132,17 @@ streamlit run app.py
 
 Open **http://localhost:8501** in your browser.
 
+## Demo Video
+
+Demo video link: &lt;add Loom or unlisted YouTube link here&gt;
+
 ## Demo Queries
 
 The following queries demonstrate the full range of system capabilities:
 
 | Query | Expected behaviour |
 |---|---|
-| `Who was Albert Einstein and what is he known for?` | Returns theory of relativity, E=mc², Nobel Prize |
+| `Who was Albert Einstein and what is he known for?` | Returns theory of relativity, quantum theory contributions, and E = mc² |
 | `What did Marie Curie discover?` | Returns radium and polonium |
 | `Which famous place is located in Turkey?` | Returns Hagia Sophia, Istanbul |
 | `Compare Hagia Sophia and Pyramids of Giza.` | Returns per-entity facts + deterministic same-dimension difference bullet |

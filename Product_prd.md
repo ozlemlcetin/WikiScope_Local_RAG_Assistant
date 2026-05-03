@@ -2,7 +2,7 @@
 
 ## Overview
 
-WikiScope is a fully local Retrieval-Augmented Generation (RAG) system for university coursework. It answers questions about famous people and places using Wikipedia as its knowledge base. All computation runs on the user's machine with no external API calls.
+WikiScope is a fully local Retrieval-Augmented Generation (RAG) system for university coursework. It answers questions about famous people and places using Wikipedia as its knowledge base. No external LLM APIs are used. Wikipedia is accessed only during ingestion; after that, local data, embeddings, vector database, retrieval, and generation run on localhost.
 
 ## Goals
 
