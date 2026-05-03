@@ -22,7 +22,7 @@ PEOPLE: list[Entity] = [
     Entity("Isaac Newton", "person", "Isaac Newton"),
     Entity("Charles Darwin", "person", "Charles Darwin"),
     Entity("Cleopatra", "person", "Cleopatra"),
-    Entity("Napoleon Bonaparte", "person", "Napoleon Bonaparte"),
+    Entity("Napoleon Bonaparte", "person", "Napoleon", ["Napoleon Bonaparte", "Napoleon I"]),
     Entity("Mahatma Gandhi", "person", "Mahatma Gandhi"),
     Entity("Nelson Mandela", "person", "Nelson Mandela"),
     Entity("Wolfgang Amadeus Mozart", "person", "Wolfgang Amadeus Mozart"),
